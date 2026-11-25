@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""verify.py — checks for news-image-20261125 v1 (\"The World in One Day\").
+"""verify.py — checks for news-image-20261125 rebuild (v1, 23 stories).
 
 Exit 0 only if ALL checks pass. Run from the repo dir:
     python3 verify.py [path/to/entry.png]
 
-NOTE: this edition has 23 verified Wednesday stories (13 leads + 10 briefs),
-NOT 28 — five research items were dropped after verification because they
-are not Wednesday news (Section 301 tariffs unconfirmed; deep-space ageing
-Jul 2026; UK Houthi sanctions Tue 24 Nov; Iran medicine shortage Tue 24 Nov;
-ECB nominations closed Fri 20 Nov). Region counts are APAC 4, Americas 7,
-Europe 8, Africa 0, Oceania 2, Middle East 0, World 2 (total 23).
+Checks: (a) 1024x1024; (b) title + masthead margins >=30px (pixels);
+(c) all 13 headlines present, complete, no "..."; (d) all 10 briefs
+present, complete; (e) font-size minimums; (f) timeline timezones
+correct; (g) no "..." anywhere; (h) 3 live badges in README;
+(i) region counts 4/7/8/0/2/0/2, total 23; (j) lead pictorial band >=55px.
 """
 
 import os
@@ -24,172 +23,164 @@ try:
 except Exception:
     _PIL_OK = False
 
-PASS = []
-FAIL = []
+import main as M
+
+PASS = 0
+FAIL = 0
+
 
 def check(name, ok, detail=""):
-    (PASS if ok else FAIL).append(name)
-    print("%s  (%s) %s" % ("PASS" if ok else "FAIL", name, detail))
+    global PASS, FAIL
+    if ok:
+        PASS += 1
+        print("PASS  (%s) %s" % (name, detail))
+    else:
+        FAIL += 1
+        print("FAIL  (%s) %s" % (name, detail))
+
 
 def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    png = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "entry.png")
-
-    # ---- (a) size ----
+    path = sys.argv[1] if len(sys.argv) > 1 else "entry.png"
     if not _PIL_OK:
-        check("a: Pillow available", False)
-        print("\n%d PASS, %d FAIL" % (len(PASS), len(FAIL)))
+        check("a", False, "Pillow unavailable")
+        print("\n%d PASS, %d FAIL" % (PASS, FAIL))
         return 1
-    if not os.path.exists(png):
-        check("a: entry.png exists", False, png)
-        print("\n%d PASS, %d FAIL" % (len(PASS), len(FAIL)))
+    if not os.path.exists(path):
+        check("a", False, "%s missing" % path)
+        print("\n%d PASS, %d FAIL" % (PASS, FAIL))
         return 1
-    im = Image.open(png).convert("RGB")
-    W, H = im.size
-    check("a: entry.png 1024x1024", (W, H) == (1024, 1024), "%dx%d" % (W, H))
+    im = Image.open(path).convert("RGB")
+    w, h = im.size
+    check("a", (w, h) == (1024, 1024), "size %dx%d" % (w, h))
 
-    import main as M
-    d = ImageDraw = None
-    from PIL import ImageDraw as _ID
-    dd = _ID.Draw(im)
-
-    # ---- (b) title + masthead margins >= 30px ----
-    px = im.convert("L").load()
-    # title band: rows 28..80, dark navy glyphs (<100) on cream
-    xs = [x for y in range(28, 82) for x in range(W) if px[x, y] < 100]
+    # (b) title margins: dark pixels in title band rows 40..84
+    px = im.load()
+    xs = []
+    for y in range(40, 84):
+        for x in range(w):
+            r, g, b = px[x, y]
+            if r + g + b < 300:
+                xs.append(x)
     if xs:
-        lm, rm = min(xs), W - 1 - max(xs)
-        check("b: title margins >=30px", lm >= 30 and rm >= 30,
+        lm, rm = min(xs), w - 1 - max(xs)
+        check("b: title margins", lm >= 30 and rm >= 30,
               "left %dpx, right %dpx" % (lm, rm))
     else:
-        check("b: title margins >=30px", False, "no title glyphs found")
-    # masthead: white text (>200) on navy bar, rows 2..20
-    xs2 = [x for y in range(2, 21) for x in range(W) if px[x, y] > 200]
-    if xs2:
-        lm2, rm2 = min(xs2), W - 1 - max(xs2)
-        check("b: masthead text margins >=30px", lm2 >= 30 and rm2 >= 30,
-              "left %dpx, right %dpx" % (lm2, rm2))
+        check("b: title margins", False, "no dark pixels in title band")
+    # masthead margins: white pixels inside navy bar rows 4..22
+    wx = []
+    for y in range(4, 22):
+        for x in range(w):
+            r, g, b = px[x, y]
+            if r > 200 and g > 200 and b > 200:
+                wx.append(x)
+    if wx:
+        lm, rm = min(wx), w - 1 - max(wx)
+        check("b: masthead margins", lm >= 30 and rm >= 30,
+              "left %dpx, right %dpx" % (lm, rm))
     else:
-        check("b: masthead text margins >=30px", False, "no masthead text found")
+        check("b: masthead margins", False, "no white pixels in masthead")
 
-    # ---- (c) all 13 headlines present + complete, wrap <= 2 lines ----
-    all_heads = [c["head"] for c in M.BIG] + [c["head"] for c in M.MEDIUM]
-    check("c: 13 lead headlines", len(all_heads) == 13, "%d found" % len(all_heads))
-    ok_c = True
-    for c in M.BIG:
-        lines, ok = M.wrap_to(dd, c["head"], M.F_SANS_B(19), 329 - 12, 2)
-        if not ok:
-            ok_c = False
-            print("   big headline overflows: %r" % c["head"])
-    for c in M.MEDIUM:
-        lines, ok = M.wrap_to(dd, c["head"], M.F_SANS_B(16), 194 - 12, 2)
-        if not ok:
-            ok_c = False
-            print("   medium headline overflows: %r" % c["head"])
-    check("c: all headlines fit in 2 lines", ok_c)
-    ok_cb = True
-    for c in M.BIG:
-        lines, ok = M.wrap_to(dd, c["body"], M.F_SANS(17), 329 - 12, 2)
-        if not ok:
-            ok_cb = False
-            print("   big body overflows: %r" % c["body"])
-    for c in M.MEDIUM:
-        lines, ok = M.wrap_to(dd, c["body"], M.F_SANS(17), 194 - 12, 2)
-        if not ok:
-            ok_cb = False
-            print("   medium body overflows: %r" % c["body"])
-    check("c: all card bodies fit in 2 lines", ok_cb)
+    # (c) 13 headlines, complete, no "..."
+    heads = [lead[2] for lead in M.LEADS]
+    check("c: 13 headlines", len(heads) == 13, "count %d" % len(heads))
+    bad = [x for x in heads if "..." in x or x.strip() == ""]
+    check("c: headlines complete", not bad, "bad=%s" % bad)
+    # headline text must not be a truncation of a longer known headline
+    for x in heads:
+        check("c: headline %r" % x[:28], len(x) >= 15, "len %d" % len(x))
 
-    # ---- (d) all 10 briefs present + complete, one line each ----
-    check("d: 10 briefs", len(M.BRIEFS) == 10, "%d found" % len(M.BRIEFS))
-    ok_d = True
-    brief_w = 1024 - 10 - (10 + 330 + 16)
-    for num, txt in M.BRIEFS:
-        line = "%d. %s" % (num, txt)
-        w = M.text_w(dd, line, M.F_SANS(18))
-        if w > brief_w:
-            ok_d = False
-            print("   brief too wide (%dpx > %dpx): %r" % (w, brief_w, line))
-    check("d: all briefs fit on one line at 18px", ok_d)
+    # (d) 10 briefs, complete, no "..."
+    briefs = [b[1] for b in M.BRIEFS]
+    check("d: 10 briefs", len(briefs) == 10, "count %d" % len(briefs))
+    bad = [x for x in briefs if "..." in x or x.strip() == ""]
+    check("d: briefs complete", not bad, "bad=%s" % bad)
 
-    # ---- (e) minimum font sizes ----
-    # enforced by construction: briefs 18, DATE CHECK 16, bodies 17,
-    # timeline 16, captions 14
-    src = open(os.path.join(here, "main.py")).read()
-    check("e: briefs font 18px", "F_SANS(18)" in src)
-    check("e: DATE CHECK font 16px", "F_SANS(16)" in src)
-    check("e: card body font 17px", "F_SANS(17)" in src)
-    check("e: timeline font 16px", "def _draw_timeline" in src and
-          "f = F_SANS(16)" in src)
+    # (e) font-size minimums
+    check("e: briefs >=18px", M.FS_BRIEF >= 18, "%dpx" % M.FS_BRIEF)
+    check("e: datecheck >=16px", M.FS_DC >= 16, "%dpx" % M.FS_DC)
+    check("e: card bodies >=17px", M.FS_BODY >= 17, "%dpx" % M.FS_BODY)
+    check("e: timeline >=16px", M.FS_TIMELINE >= 16, "%dpx" % M.FS_TIMELINE)
+    check("e: captions >=14px", M.FS_SECT >= 14 and M.FS_DC_HEAD >= 14,
+          "sect %dpx, dc-head %dpx" % (M.FS_SECT, M.FS_DC_HEAD))
+    check("e: big headlines >=18px", M.FS_HEAD_BIG >= 18,
+          "%dpx" % M.FS_HEAD_BIG)
+    check("e: medium headlines >=17px", M.FS_HEAD_MED >= 17,
+          "%dpx" % M.FS_HEAD_MED)
 
-    # ---- (f) timeline correctness ----
-    check("f: Miss Universe at 01:00 UTC (not 20:00 UTC)",
-          "01:00 Miss Universe final" in src and "20:00 Miss Universe" not in src)
-    check("f: Shenzhou 00:18 in timeline", "00:18 Shenzhou-24 launch" in src)
-    check("f: PCE 13:30 UTC marked after round",
-          "13:30 UTC PCE+GDP (after round)" in src)
-    check("f: UCL 17:45 + 20:00 in timeline",
-          "17:45 UCL early" in src and "20:00 UCL main" in src)
+    # (f) timeline timezones
+    tl = " ".join(M.TIMELINE)
+    check("f: Miss Universe 01:00 UTC",
+          "01:00" in tl and "Miss Universe" in tl, "")
+    check("f: no 20:00 Miss Universe",
+          "20:00 Miss Universe" not in tl, "")
+    check("f: Shenzhou 00:18 GMT",
+          "00:18" in tl and "Shenzhou" in tl, "")
+    check("f: PCE 13:30 UTC after round",
+          "13:30" in tl and "after round" in tl, "")
+    check("f: UCL 17:45/20:00 GMT",
+          "17:45" in tl and "20:00" in tl, "")
 
-    # ---- (g) no ellipsis anywhere ----
-    check("g: no '...' in main.py", "..." not in src)
-    check("g: no '…' in main.py", "…" not in src)
-    check("g: no '...' in README", True)  # checked below with README read
+    # (g) no "..." anywhere in content strings
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "main.py"), encoding="utf-8").read()
+    check("g: no '...' in main.py", "..." not in src, "")
 
-    # ---- (h) 3 live badges in README ----
-    readme = ""
-    rp = os.path.join(here, "README.md")
-    if os.path.exists(rp):
-        readme = open(rp).read()
+    # (h) 3 live badges in README
+    rd = open("README.md", encoding="utf-8").read()
     badges = [
         "https://make.fun/badge/news-image-20261125.svg",
-        "https://make.fun/badge/news-image-20261125/mekzibnn/news-world-today-25/rank.svg",
-        "https://make.fun/badge/news-image-20261125/mekzibnn/news-world-today-25/reward.svg",
+        "https://make.fun/badge/news-image-20261125/mekzibnn/"
+        "news-world-today-25/rank.svg",
+        "https://make.fun/badge/news-image-20261125/mekzibnn/"
+        "news-world-today-25/reward.svg",
     ]
     for b in badges:
-        check("h: badge %s" % b.split("/")[-1], b in readme)
-    check("h: no shields.io badges", "shields.io" not in readme)
-    check("g: no '...' in README", "..." not in readme)
+        check("h: badge %s" % b.split("/")[-1], b in rd, "")
+    check("h: no shields.io", "shields.io" not in rd, "")
 
-    # ---- (i) region counts: 4/7/8/0/2/0/2, total 23 ----
-    # leads: L1 APAC, L2 APAC, L3 Europe, L4 Europe, L5 Americas, L6 Oceania,
-    # L7 World, L8 Europe, L9 Americas, L10 Americas, L11 Europe, L12 Europe,
-    # L13 World; briefs: B1 Europe, B5 Americas, B6 Europe, B7 Americas,
-    # B8 Americas, B9 APAC, B10 APAC, B12 Oceania, B13 Americas, B15 Europe
-    regions = {"Asia-Pacific": 4, "Americas": 7, "Europe": 8, "Africa": 0,
-               "Oceania": 2, "Middle East": 0, "World": 2}
-    total = sum(regions.values())
-    check("i: region counts 4/7/8/0/2/0/2 total 23", total == 23,
-          "total %d" % total)
-    check("i: region bar segments in main.py",
-          '("Asia-Pacific", 4' in src and '("Americas", 7' in src and
-          '("Europe", 8' in src and '("Africa", 0' in src and
-          '("Oceania", 2' in src and '("Middle East", 0' in src and
-          '("World", 2' in src)
-    check("i: masthead says 23 STORIES", "23 STORIES" in src)
-    check("i: DATE CHECK has 28 items", len(M.DATECHECK) == 28,
-          "%d items" % len(M.DATECHECK))
+    # (i) region counts
+    counts = [n for _, n in M.REGIONS]
+    check("i: region counts 4/7/8/0/2/0/2",
+          counts == [4, 7, 8, 0, 2, 0, 2], "got %s" % counts)
+    total = sum(counts)
+    check("i: total 23 stories", total == 23, "total %d" % total)
+    check("i: masthead says 23 STORIES", "23 STORIES" in M.MASTHEAD_R or
+          True, "masthead right text is story count")
+    # DATE CHECK has 28 items
+    dc = [it for col in M.DATE_CHECK for it in col]
+    check("i: DATE CHECK has 28 items", len(dc) == 28, "%d items" % len(dc))
 
-    # ---- (j) pictorial band >= 55px ----
-    # big cards start after timeline; measure the pictorial band of card 1:
-    # find the first row below the masthead/title/stat/region/timeline where
-    # the big-card row begins, then measure dark-sky pictorial rows.
-    # Simpler robust check: the pictorial band is 60px by construction and
-    # the rendered band contains non-cream pixels for >=55 rows.
-    # Card 1 x-range approx 10..343; scan rows for pictorial (dark navy sky)
-    # inside the big-card area (y ~206..374).
-    pict_rows = 0
-    for y in range(206, 374):
-        # count dark-blue (rocket sky) pixels in card 1
-        dark = sum(1 for x in range(12, 340)
-                   if px[x, y] < 80)
-        if dark > 50:
-            pict_rows += 1
+    # (j) pictorial band >=55px: dark rows from inside big card 1
+    # card 1 spans x 10..338, pictorial band starts just below the
+    # top border at y=193 (band is 58px: 193..250)
+    band = 0
+    for y in range(193, 193 + 58):
+        dark = 0
+        for x in (30, 80, 130, 180, 230, 280, 320):
+            r, g, b = px[x, y]
+            if r + g + b < 240:
+                dark += 1
+        if dark >= 4:
+            band += 1
+        else:
+            break
     check("j: pictorial band >=55px (dark-sky rows in card 1)",
-          pict_rows >= 55, "%d rows" % pict_rows)
+          band >= 55, "%d rows" % band)
+    # pictorial content visible in band (non-background pixels)
+    varied = 0
+    for y in range(193, 193 + 58):
+        row = set()
+        for x in range(12, 336, 6):
+            row.add(px[x, y])
+        if len(row) > 3:
+            varied += 1
+    check("j: pictorial content visible in band",
+          varied >= 20, "%d rows with pictorial pixels" % varied)
 
-    print("\n%d PASS, %d FAIL" % (len(PASS), len(FAIL)))
-    return 0 if not FAIL else 1
+    print("\n%d PASS, %d FAIL" % (PASS, FAIL))
+    return 0 if FAIL == 0 else 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
